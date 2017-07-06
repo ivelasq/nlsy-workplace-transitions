@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<head>
+    <title>National Longitudinal Survey of Youth: Workplace Transitions</title>
+    <link rel="stylesheet" href="style/style.css" type="text/css" media="screen" />
+	<meta charset="utf-8">
+</head>
+
+<body>
+<div id="main-wrapper">	
+	<div id="filters">
+		<div class="demo current" data-val="M">Male</div>
+		<div class="demo" data-val="F">Female</div>
+	</div>
+	<div class="clr"></div>
+	<div id="chart"></div>
+</div><!-- @end #main-wrapper -->
+	
+<script src="js/d3-3-5-5.min.js"></script>
+<script>
+//
+// User settings
+//
+var USER_DEMO = "M";
+var USER_CAUSE = null;
+
+//
+// Metadata and settings
+//
+var causes_meta = {
+	"MP": { "name": "Managers and Professionals", "descrip": "Managers and Professionals", xlab: 1 },
+	"CA": { "name": "Clerical/Administrative Support", "descrip": "Clerical/Administrative Support", xlab: 24},
+	"Fa": { "name": "Farming, Forestry and Fishing", "descrip": "Farming, Forestry and Fishing", xlab: 3},
+	"H": { "name": "Handlers, Helpers and Laborers", "descrip": "Handlers, Helpers and Laborers", xlab: 21},
+	"MO": { "name": "Machine Operators", "descrip": "Machine Operators", xlab: 29 },
+	"NW": { "name": "Not Working", "descrip": "Not Working", xlab: 10},
+	"PP": { "name": "Precision Production, Craft, Repair", "descrip": "Precision Production, Craft, Repair", xlab: 15 },
+	"Sa": { "name": "Sale", "descrip": "Sales", xlab: 12},
+	"Se": { "name": "Services", "descrip": "Service", xlab: 13},
+	"Te": { "name": "Technical", "descrip": "Technical", xlab: 16},
+	"Tr": { "name": "Transportation and Material Moving Operators", "descrip": "Transportation and Material Moving Operators", xlab: 22}
+}
+
+
+//
+// Margins
+//
+var margin = {top: 10, right: 15, bottom: 30, left: 40},
+    width = 800 - margin.left - margin.right,
+    height = 700 - margin.top - margin.bottom,
+	percent = d3.format('%');
+
+//
+// Scales
+//
+
+// x-scale	
+var x = d3.scale.linear()
+    .range([0, width]);
+
+// y-scale
+var y = d3.scale.linear()
+    .range([height, 0]);
+
+// Color	
+var z = d3.scale.category20b();
+
+// x-axis
+var xAxis = d3.svg.axis()
+    .scale(x)
+	.orient("bottom")
+	.tickFormat(function(d) {
+        if (d == 100) {
+            return ">10000";
+        } else {
+            return d;
+        }
+    });
+
+// y-axis
+var yAxis = d3.svg.axis()
+    .scale(y)
+    .orient("left")
+	.tickFormat(percent);
+
+//
+// Layout
+//
+	
+var stack = d3.layout.stack()
+    .offset("zero")
+    .values(function(d) { return d.values; })
+    .x(function(d) { return d.age; })
+    .y(function(d) { return d.prop; });
+	
+var nest = d3.nest()
+    .key(function(d) { return d.cause; });
+
+var area = d3.svg.area()
+    .x(function(d) { return x(d.age); })
+    .y0(function(d) { return y(d.y0); })
+    .y1(function(d) { return y(d.y0 + d.y); });
+
+var svg = d3.select("#chart").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+	
+	//	
+	// Load data	
+	//
+	d3.tsv("data/transition.tsv", type, function(error, data_all) {     
+	
+	var data_filtered = data_all.filter(function(d) { return d.group === USER_DEMO; });
+		
+	var layers = stack(nest.entries(data_filtered));
+	
+	x.domain(d3.extent(data_filtered, function(d) { return d.age; }));
+	y.domain([0, d3.max(data_filtered, function(d) { return d.y0 + d.y; })]);
+
+	//
+	// Filter buttons
+	//
+	
+	var filters = d3.selectAll("#filters .demo")
+		.on("click", function() {
+			d3.select(".demo.current").classed("current", false);
+			USER_DEMO = d3.select(this).attr("data-val");
+			d3.select(this).classed("current", true);
+			update();
+		});
+	
+	
+	//
+	// Notes for currently selected (blank to start)
+	//
+	
+	var curr_title = svg.append("text")
+		.attr("id", "currcause")
+		.attr("transform", "translate("+ (width/2+margin.left) + "," + (height/2+margin.top-100) + ")");
+	
+	
+	// 
+	// Navigation buttons for previous and next
+	//
+	var reset_button = svg.append("text")
+		.attr("id", "reset")
+		.attr("class", "navbutton")
+		.attr("transform", "translate("+ (width/2+margin.left) + "," + (height/2+margin.top-150) + ")")
+		.text("SHOW ALL")
+		.on("click", reset);
+	var prev_button = svg.append("text")
+		.attr("id", "previous")
+		.attr("class", "navbutton")
+		.attr("transform", "translate("+ (width/2+margin.left-10) + "," + (height/2+margin.top-50) + ")")
+		.text("< PREV")
+		.on("click", previous);
+	var next_button = svg.append("text")
+		.attr("id", "next")
+		.attr("class", "navbutton")
+		.attr("transform", "translate("+ (width/2+margin.left+10) + "," + (height/2+margin.top-50) + ")")
+		.text("NEXT >")
+		.on("click", next);
+	
+	//
+	// Layers
+	//
+	svg.selectAll(".layer")
+		.data(layers)
+	  .enter().append("path")
+    	.attr("class", "layer")
+		.attr("id", function(d) { return d.key; })
+    	.attr("d", function(d) { return area(d.values); })
+		.style("fill", function(d, i) { return z(d.key); });
+
+	var layer_label = svg.selectAll(".layerlabel")
+		.data(layers)
+	  .enter().append("text")
+		.attr("class", "layerlabel")
+		.attr("transform", function(d) {
+			var cmeta = causes_meta[d.key];
+			var cvalue = d.values[1];
+			return "translate(" + x(30) + "," + y(cvalue.y0 + cvalue.y / 2) + ")";
+		})
+		.attr("dy", ".5em")
+		.text(function(d) {
+			if (causes_meta[d.key].xlab < 30) {
+				return causes_meta[d.key].name;
+			} else {
+				return "";
+			}
+		});
+
+
+
+	//
+	// Axes
+	//
+	svg.append("g")
+    	.attr("class", "x axis")
+    	.attr("transform", "translate(0," + height + ")")
+    	.call(xAxis);
+	svg.append("text")
+		.attr("class", "x axis")
+		.attr("text-anchor","end")
+		.attr("x", width)
+		.attr("y", height - 6)
+		.text("Age");
+	svg.append("g")
+    	.attr("class", "y axis")
+    	.call(yAxis);
+	
+	
+	// 
+	// Layer interaction
+	//
+	
+	// Click layer.
+	svg.selectAll(".layer").on("click", function(d,i) {
+		if (USER_CAUSE === null) {
+			USER_CAUSE = d3.select(this).attr("id");
+		} else {
+			USER_CAUSE = null;
+		}
+				
+		update();
+	});
+	
+	
+	// Next layer.
+	function next() {
+		if (USER_CAUSE != null) {
+			var curr_index = Object.keys(causes_meta).indexOf(USER_CAUSE);
+			if (curr_index == Object.keys(causes_meta).length-1) {
+				USER_CAUSE = Object.keys(causes_meta)[0];
+			} else {
+				USER_CAUSE = Object.keys(causes_meta)[curr_index+1];
+			}
+			
+			update();
+		}
+	}
+	
+	
+	// Previous layer.
+	function previous() {
+		if (USER_CAUSE != null) {
+			var causes = Object.keys(causes_meta);
+			var curr_index = causes.indexOf(USER_CAUSE);
+			if (curr_index == 0) {
+				USER_CAUSE = causes[causes.length-1];
+			} else {
+				USER_CAUSE = causes[curr_index-1];
+			}
+			
+			update();
+		}
+	}
+	
+	// Reset and show all layers.
+	function reset() {
+		USER_CAUSE = null;
+		update();
+	}
+	
+	// Update the chart.
+	function update() {
+		
+		data_filtered = data_all.filter(function(d) { return d.group === USER_DEMO; });
+		
+		// User selected a cause
+		if (USER_CAUSE != null) {
+			
+			// Update current title
+			curr_title.text(causes_meta[USER_CAUSE].descrip);
+			
+			// Filter data accordingly.
+			data_filtered = data_filtered.map(function(d) {
+				if (d.cause !== USER_CAUSE) {	// Scope issues (?). Had to create new object.
+					return {
+						"age": d.age,
+						"cause": d.cause,
+						"group": d.group,
+						"prop": 0,
+						"y": d.y,
+						"y0": d.y0,
+					}
+				} else {
+					return d;
+				}
+			});
+		
+		} 
+		
+		// Cause deselected
+		else {
+			// Don't need to do anything.
+		}
+		
+		// Update the layers.
+		var layers = stack(nest.entries(data_filtered));
+		
+		d3.selectAll(".layer")
+			.data(layers)
+		  .transition()
+			.duration(1000)
+			.attr("d", function(d) {
+				return area(d.values); 
+			});
+
+		// Update layer labels.
+		d3.selectAll(".layerlabel")
+			.data(layers)
+		  .transition()
+			.duration(1000)
+			.attr("transform", function(d) {
+				var cmeta = causes_meta[d.key];
+				var cvalue = d.values[1];
+				return "translate(" + x(30) + "," + y(cvalue.y0 + cvalue.y / 2) + ")";
+			})
+			.style("opacity", function() {
+				if (USER_CAUSE != null) {
+					// Fade label out
+					return 0;
+				} else {
+					return 1;
+				}
+			});
+	}
+	
+});
+	
+	
+
+//
+// Set specified fields to numeric.
+//
+function type(d) {
+	
+	d.age = +d.age;
+	d.prop = +d.prop;
+	return d;
+	
+}
+	
+</script>
